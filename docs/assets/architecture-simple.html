@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Architecture, high level</title>
+<style>
+body{font:18px/1.5 -apple-system,Inter,Helvetica,sans-serif;background:#16161d;color:#dcd7ba;max-width:1000px;margin:40px auto;padding:0 32px}
+h1{font-size:34px;margin:0 0 4px}.tag{color:#98bb6c;font-family:monospace;letter-spacing:.08em}
+.mermaid{background:#1f1f28;border:1px solid #2a2a37;border-radius:10px;padding:16px;margin:18px 0}
+ol li{margin:8px 0}b{color:#e6c384}
+</style>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({startOnLoad:true,theme:'dark',themeVariables:{fontSize:'17px',primaryColor:'#1f1f28',primaryBorderColor:'#7e9cd8',primaryTextColor:'#dcd7ba',lineColor:'#9c9a8f',clusterBkg:'#1a1a22',clusterBorder:'#2a2a37'}});
+</script></head><body>
+<div class="tag">HIGH LEVEL · STABLE PARTS ONLY</div>
+<h1>Private payments on Solana</h1>
+<p>Hide who gets paid and how much. Keep an auditor key so it stays usable by real businesses.</p>
+
+<pre class="mermaid">
+flowchart LR
+  S([Sender])
+  R([Recipient])
+  subgraph P[Our protocol · on-chain]
+    A[Address book<br/>one reusable address per person]
+    B[One-time accounts<br/>a fresh, program-owned account per payment]
+  end
+  subgraph T[Solana · already exists]
+    C[Token-2022 confidential balances<br/>encrypted amounts, auditor key]
+  end
+  R -- 1. publish address --> A
+  S -- 2. look up --> A
+  S -- 3. create + fund a one-time account --> B
+  B -- amounts encrypted --> C
+  R -- 4. find it, prove it's yours, sweep --> B
+</pre>
+
+<ol>
+<li><b>Publish.</b> The recipient shares one address, once. It never receives funds directly.</li>
+<li><b>Pay.</b> The sender uses that address to derive a fresh account nobody can link back to the recipient, and pays into it with the amount encrypted. The recipient can be offline.</li>
+<li><b>Find and sweep.</b> The recipient scans, spots their accounts, proves ownership, and moves the money out.</li>
+<li><b>Audit.</b> A designated auditor key can read amounts. Nobody else can. Nobody can spend with it.</li>
+</ol>
+
+<p><b>What we build:</b> the two on-chain pieces (address book, one-time accounts) and a command-line client. <b>What we reuse:</b> Solana's own confidential balances and proof system. <b>Not building:</b> a wallet, a web app, or our own cryptography primitives.</p>
+</body></html>

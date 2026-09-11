@@ -36,15 +36,15 @@ TL;DR: one flat folder. `brief.md` says what and why, `design.md` says how, `res
 
 | File | Status |
 |---|---|
-| brief.md | todo |
-| landscape.md | todo |
-| design.md | todo |
-| crypto.md | todo |
-| privacy.md | todo |
-| plan.md | todo |
-| decisions.md | todo |
-| faq.md | todo |
+| brief.md | draft |
+| landscape.md | draft |
+| design.md | draft |
+| crypto.md | draft |
+| privacy.md | draft |
+| plan.md | draft |
+| decisions.md | draft |
+| faq.md | draft |
 | loi/part1-proposal.md | todo |
 | loi/part2-redteam-log.md | todo |
 
-Migration note: source material currently lives in `~/Projects/mine/solana/capstone/` (BRIEF, ARCHITECTURE, DECISION, research/01-18). It moves here file by file as each doc is written.
+Research migrated from `~/Projects/mine/solana/capstone/research/` on 2026-09-11; see `research/README.md`. The old `capstone/` folder is now archive only.
