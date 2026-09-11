@@ -1,8 +1,10 @@
 # solana_privacy
 
-_todo: one paragraph. What this is, who it is for, current status._
+Private payments on Solana: the public sees neither who received a payment nor how much, the sender stays visible, the money stays an ordinary Token-2022 token, and an auditor can still read amounts. Built from two existing halves that were never joined, stealth addresses and Token-2022 confidential balances, with no pool, no relayer, no MPC, no enclave. Turbin3 Q3 2026 Builders Cohort capstone.
 
-Docs live in `docs/`. Start at `docs/README.md`.
+Status: design and research phase, no code yet. Two Anchor programs and a TypeScript CLI are planned; see `docs/plan.md`.
+
+Docs live in `docs/`. Start at `docs/README.md` for the map and the reading order per role.
 
 ## License
 
