@@ -1,8 +1,8 @@
 # Conventions for AI sessions
 
-Project: confidential payout rail on Solana (Token-2022 confidential balances, optional stealth one-time accounts, payer visible, no pool). Design phase; no code yet. Owner: Valentyn, who does the programs and cryptography and no frontend.
+Project: confidential payout rail on Solana (Token-2022 confidential balances, optional stealth one-time accounts, payer visible, no pool). Design phase; no code yet. Owner: Valentyn. Stack is fixed: one Pinocchio program, one Rust CLI, no Anchor, no TypeScript.
 
-- `docs/brief.md` is canonical for scope; `docs/design.md` for how. Everything else derives or evidences.
+- `docs/brief.md` is canonical for scope; `docs/design.md` for how; `docs/client.md` for the off-chain side. Everything else derives or evidences.
 - `docs/research/` is evidence: never edit, only add dated files.
 - Docs describe the present; `docs/decisions.md` holds the why and the history.
 - Every doc: front-matter `status` (todo | draft | decided | verified) and `last_verified`, then a two-line TL;DR. Under ~1,500 words.

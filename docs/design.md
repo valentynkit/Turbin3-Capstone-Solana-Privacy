@@ -1,100 +1,142 @@
 ---
-status: draft
+status: decided
 last_verified: 2026-09-14
 ---
 
 # Design
 
-TL;DR: two small Anchor programs. A registry holds one reusable address per recipient. A stealth program owns every one-time account and drives Token-2022 by CPI. Plain recipients are paid by a direct confidential transfer with no program call. Traced against Token-2022 source (research: token2022-mechanics-verified).
+TL;DR: one Pinocchio program with four instructions, one Rust CLI (client.md). The program sets up a one-time confidential account and hands it to the one-time key; after that the recipient moves funds with plain Token-2022 instructions and our program is never in the funds path. One transaction per side, every proof inline in a 4096-byte v1 transaction. Source-verified in research/2026-09-14-arch-r1 to r5.
+
+Marks: [verified] read in source or on chain, cited; [likely] arithmetic over verified facts; [open] spike pending, see plan.md.
 
 ## Components
 
 | Component | Where | Role |
 |---|---|---|
-| Registry program | on-chain, ours | one meta-address per wallet: spend pubkey (Ed25519), scan pubkey (X25519) |
-| Stealth program | on-chain, ours | owns every one-time account; open, configure, fund, sweep, close by CPI; checks the one-time key's signature |
-| Token-2022 + ZK ElGamal proof program | Solana's, unchanged | confidential balances, proof verification, auditor key |
-| Payer client | off-chain | batch: derive keys, generate proofs, pay plain and stealth recipients |
-| Recipient client | off-chain | publish, scan, decrypt, sweep |
-| Relayer | off-chain, optional | pays fees for sweeps; not needed in the default flow |
+| Program | on-chain, ours, Pinocchio 0.11 `no_std` | registry PDAs; creates, configures and hands over one-time accounts; reclaims rent |
+| Token-2022 + ZK ElGamal proof program | Solana's, unchanged | confidential balances, proof verification, auditor key; both live on mainnet-beta and devnet since epoch 982 [verified] |
+| CLI | off-chain, Rust | payer: register, pay (batch, plain and stealth mixed); recipient: scan, sweep; either: disclose, verify; bench |
 
-Diagram: assets/how-it-works.html.
+No relayer, no indexer, no second program.
 
 ## Keys
 
 ```
-Recipient long-term: b_spend (Ed25519), b_scan (X25519)
-Meta-address:        B_spend, B_scan                       public
-Per payment:         e random, E = e·X                     E public
-Shared secret:       S = ECDH(e, B_scan) = ECDH(b_scan, E) payer and recipient
-One-time key:        P = B_spend + t·G, t from S           scalar p = b_spend + t: recipient only
-View tag:            1 byte from S                          public
-Confidential keys:   ElGamal + AES from S via zk-sdk        payer AND recipient
+Recipient long-term: b_spend (Ed25519), b_scan (X25519); meta-address B_spend, B_scan
+Per payment:         e derived from the run secret, E = e·X, public
+Shared secret:       S = ECDH(e, B_scan) = ECDH(b_scan, E)
+One-time key:        P = B_spend + t·G, t from S; scalar p = b_spend + t, recipient only
+View tag:            1 byte from S, public
+Confidential keys:   ElGamal + AES from S via zk-sdk, payer and recipient
+Destination owner:   D_owner from the recipient's secret and (E, k), recipient only
 ```
 
-The payer can configure and fund, and can read that one balance. Only the recipient holds p, so only the recipient can move funds. Derivation details: crypto.md.
+Recipe and checks: crypto.md.
 
 ## Accounts
 
-| Account | Owner | Notes |
+MetaAddress, PDA `["meta", wallet]`, 86 bytes: discriminator 1, version 1, spend_pub 32, scan_pub 32, scheme_id 2, flags 1, bump 1, reserved 16. Rent 1,489,440 lamports. The wallet is the identity you hand to a payer; register from a fresh wallet if that matters.
+
+Announcement, PDA `["stealth", E, k]`, 69 bytes, rent 1,371,120 lamports:
+
+| Offset | Field | Size |
 |---|---|---|
-| MetaAddress | registry | ["meta", wallet]; spend_pub, scan_pub, version |
-| StealthAccount | stealth program | ["stealth", E]; E, view_tag, P, mint, token_account, state. Doubles as the announcement: discovery is a getProgramAccounts filter on view_tag |
-| Token account | Token-2022 | owner = StealthAccount PDA; ImmutableOwner + ConfidentialTransferAccount |
-| P system account | System | holds a little SOL from the payer so P can pay the sweep fee |
-| Proof context accounts | ZK proof program | transient |
-| Mint | Token-2022 | ConfidentialTransferMint; auditor key optional |
+| 0 | discriminator = 2 | 1 |
+| 1 | version = 1 | 1 |
+| 2 | E | 32 |
+| 34 | payer, gets every rent refund | 32 |
+| 66 | view_tag | 1 |
+| 67 | k | 1 |
+| 68 | bump | 1 |
+
+P and the mint are not stored: after open, P is the token account's owner and the mint is in the token account. Scan filter: `dataSize = 69`, `memcmp(0, [2])`, `memcmp(66, [tag])`.
+
+Token account, PDA `["ta", E, k]`, 465 bytes (base plus ConfidentialTransferAccount, no ImmutableOwner), rent 4,127,280 lamports [likely, from the verified per-byte figures]. Owner field: the announcement PDA during open, P after. Close authority: the announcement PDA, so rent can only return to the payer. Allocated with allocate, transfer-of-deficit, assign, so a one-lamport pre-fund cannot block it.
+
+P: a system account with no data, funded inside open, drained to zero inside the recipient's transaction [verified: a fee payer may end a transaction at zero lamports].
+
+Every field is a byte array; the zero-copy cast is aligned at 1. All layouts and encoders live in a `no_std` crate shared by program and CLI.
 
 ## Instructions
 
-Registry: register, rotate, close.
+| # | Name | Signers | CPIs in order | Guards |
+|---|---|---|---|---|
+| 0 | register_meta | wallet | System | spend_pub decompresses and `L·spend_pub = identity` via curve25519 syscalls, about 2,336 CU [verified]; scan_pub nonzero |
+| 1 | close_meta | wallet | none | PDA from signer |
+| 2 | open | payer | System allocate + assign for both PDAs; Token-2022 InitializeAccount3 (owner = announcement PDA), ConfigureAccount (inline proof offset, `maximum_pending_balance_credit_counter = 1`, payer-supplied `decryptable_zero_balance`), DisableNonConfidentialCredits, SetAuthority CloseAccount to the announcement PDA, SetAuthority AccountOwner to P; System transfer to P | PDAs from (E, k) with canonical bump; mint is Token-2022 with ConfidentialTransferMint and auto-approves; not initialized; P decompresses (159 CU) |
+| 3 | reclaim | none | Token-2022 CloseAccount signed by the announcement PDA, lamports to payer; close the announcement, lamports to payer | token account's pending and available balances are zero (Token-2022 enforces this in CloseAccount); payer account matches the stored one |
 
-Stealth program, one atomic state transition each:
+Accounts for open: payer, announcement, token account, mint, P, instructions sysvar, System, Token-2022. Data: E 32, P 32, k 1, view_tag 1, decryptable_zero_balance 36, lamports_for_P 8, bump 1.
 
-| Instruction | Signer | CPI | Guard |
-|---|---|---|---|
-| open | payer | System, Token-2022 initialize | stores E, view_tag, P, mint; also funds P's system account with fee dust |
-| configure | payer | ConfigureAccount, program signs as owner | key-validity proof via context account |
-| fund | payer | confidential Transfer in | once: state must be configured |
-| sweep | **P as transaction signer and fee payer** | ApplyPendingBalance, then confidential Transfer out; program signs | P must match the stored key; nonce; state becomes swept |
-| close | anyone | EmptyAccount (zero-balance proof) + CloseAccount | state must be swept; rent to the sweep destination |
+Accounts for reclaim: announcement, token account, payer, Token-2022.
 
-Plain recipients: no instruction of ours; the payer's client builds a Token-2022 confidential transfer directly.
+Funding is not an instruction. The payer's Token-2022 Transfer into the new account is a top-level instruction in the same transaction as open. Sweeping is not an instruction either: the recipient signs Token-2022 directly with P.
 
-Decisions: all proofs via context-state accounts (our program sits behind a CPI; inline proof offsets are relative to top-level instructions); apply-pending only inside sweep so nobody can poison the decryptable-balance cache; sweep authorised by P signing the transaction itself, not by precompile introspection (simpler, and P paying the fee keeps the recipient's wallet out of the picture); close needs Token-2022's zero-balance proof.
+Why these shapes [verified unless marked]:
+- Inline proof offsets resolve against the top-level instruction index even under our CPI, so no context-state accounts are needed once the transaction can carry the proofs.
+- SetAuthority AccountOwner is refused only when ImmutableOwner or CpiGuard is present; it needs the current owner's signature, which the program gives by invoke_signed; the new owner needs no account and no signature. Nothing in ApplyPendingBalance, Transfer, EmptyAccount or CloseAccount is tied to the owner at configure time. The credit cap has no setter after configure.
+- Handing the account to P takes our program out of the funds path. Before, a bug in a program-signed sweep could brick funds, and an upgrade authority colluding with a payer that holds the ElGamal key could move them; ImmutableOwner blocked the upgrade authority alone, not the pair. After, the recipient depends on Token-2022 and nothing else, and any wallet that speaks confidential transfers can recover the money with the key P.
+- CloseAccount authorises against the close authority when one is set, so pinning it to the announcement PDA makes the rent refund to the payer a guarantee rather than a courtesy, and reclaim is the only way to close both accounts, together.
+- ConfigureAccount enables public credits unconditionally; one base unit sent to the public balance would block CloseAccount forever. DisableNonConfidentialCredits before handover closes that; only the owner can re-enable it.
+- With the credit counter capped at 1, the payer's own transfer is the only credit that can land before an apply. ApplyPendingBalance resets the counter, so the recipient's apply, transfer and empty must sit in one transaction: there is then no boundary for dust to land in. Atomicity comes from the transaction, not from routing through our program.
+- The `expected_pending_balance_credit_counter` field of ApplyPendingBalance is stored, never checked; the client treats it as bookkeeping.
+- The AE-encrypted balance cache is not authenticated. The client always decrypts from the ElGamal ciphertexts with its own key.
 
-## One payout run
+## One stealth payment
 
-| Step | Who | Txs | Notes |
-|---|---|---|---|
-| publish | each stealth recipient | 1, once | |
-| prepare | payer | 0 | derive keys per stealth recipient; generate all proofs locally |
-| plain recipients | payer | ~5 each | confidential transfer |
-| stealth recipients: open + configure + fund | payer | ~6 each | key-validity, then transfer proofs |
-| scan | recipient | 0 | view-tag filter, trial ECDH, decrypt |
-| sweep + close | recipient, fee from P | ~5 | to a fresh self-owned account, never to a reused one |
+Payer, one transaction, one signature, about 2,700 bytes of 4,096 [likely], about 226k CU of proof verification plus Token-2022 work [verified constants; overhead open]:
 
-## Costs
+```
+SetComputeUnitLimit
+VerifyPubkeyValidity                              inline, 97 B
+VerifyCiphertextCommitmentEquality                321 B
+VerifyBatchedGroupedCiphertext3HandlesValidity    545 B
+VerifyBatchedRangeProofU128                       1001 B
+open                                              offset to the pubkey proof; ends with the account owned by P
+Token-2022 Transfer payer -> one-time account     offsets to the three proofs
+```
 
-Estimated [likely]: plain ≈ 5 txs and ≈ 223k CU of proof verification; stealth ≈ 10–11 txs across both sides; ≈ 0.013 SOL locked per stealth payment until close, 0.004 standing. Batching amortises client proof generation and lets the run use lookup tables; it does not reduce per-recipient transaction count. Measurement is week 2.
+Plain recipients: the same without the pubkey proof and open.
 
-## Tech stack
+Recipient, one transaction, signed by P and D_owner, about 3,000 bytes [likely], about 231k CU of proofs plus Token-2022 work; no instruction of ours except reclaim:
 
-Rust + Anchor 1.x. Token-2022 confidential extension. ZK ElGamal proof program. zk-sdk key derivation (solana-zk-sdk 7.0.1, @solana/zk-sdk 0.5.2). ed25519-dalek hazmat for raw-scalar signing (client). TypeScript on @solana/kit, @solana-program/token-2022 0.17, @solana-program/zk-elgamal-proof; Codama. LiteSVM + Mollusk, Surfpool, devnet.
+```
+SetComputeUnitLimit
+VerifyPubkeyValidity for D
+System CreateAccountWithSeed (base D_owner, P pays), InitializeAccount3 (owner D_owner), ConfigureAccount (D_owner signs, offset), DisableNonConfidentialCredits
+VerifyCiphertextCommitmentEquality, VerifyBatchedGroupedCiphertext3HandlesValidity, VerifyBatchedRangeProofU128
+VerifyZeroCiphertext    over the source balance after the transfer, computed ahead
+ApplyPendingBalance, Transfer (full balance to D), EmptyAccount    all signed by P
+reclaim                 rent of both accounts to the payer
+System transfer of P's remainder to D_owner
+```
+
+The zero-ciphertext proof is valid because Transfer updates the source balance by deterministic homomorphic subtraction and EmptyAccount compares the proof against the live balance at execution [verified]. D and D_owner are fresh per payment and derived, so nothing is persisted on the recipient side. A recipient may instead spend the whole balance straight to a counterparty; a partial spend from the one-time account shows the payer the split, because the payer holds that account's key (privacy.md).
+
+Failure model: both transactions are atomic. Payer side: the announcement PDA exists means the payment landed; absent after the last valid block height means retry. Recipient side: the announcement is gone means swept and reclaimed.
+
+## Money
+
+Per stealth payment the payer sends to P: D rent 4,127,280 lamports, fees for two signatures, a priority allowance for the recipient's transaction (about 231k CU of proofs plus Token-2022 work; budget 450k [likely]), a retry margin. About 0.0045 to 0.006 SOL at a fee price still to be measured [open]. The D rent and the remainder end with the recipient; the payer's net cost is fees.
+
+Locked by the payer until the recipient's transaction, then refunded by reclaim: announcement 1,371,120 plus token account 4,127,280 lamports, about 0.0055 SOL. Nothing is locked in proof accounts on either side. Never-swept accounts stay locked and cannot be reclaimed by the payer, since only P can empty them.
+
+Priority fees are the only cost that scales with congestion: the range proof alone is 200,000 CU.
+
+## Fallback
+
+If v1 transactions cannot be used end to end on day 1 (spike S1), the design falls back to research/2026-09-14-arch-r2-candidate-v1 for transaction packing (proof context accounts, several transactions per side) while keeping the handover: the recipient still moves funds with plain instructions and calls our program only for reclaim. Same program state, same keys.
 
 ## Confidence
 
 | Part | Confidence | Basis |
 |---|---|---|
-| PDA-owned confidential account, program-signed configure / apply / transfer / close | high | no on-curve check in Token-2022 owner validation; Occult runs it |
+| PDA-owned setup: program-signed configure, disable, set authority | high | owner validation has no on-curve check; every path cited |
+| Handover to P; recipient sweeps with plain instructions | high | SetAuthority and every later authorisation cited (research: arch-r5-handover-verified); not yet run (S3) |
+| Inline proofs under CPI | high | runtime index logic cited |
+| One transaction per side | medium-high | sizes and caps cited; v1 not yet exercised end to end (S1) |
+| Griefing closed | high | counter cap, disabled public credits, atomic recipient transaction, all cited; a mint freeze authority remains |
+| Torsion check from Pinocchio | medium | syscalls and CU cited; not yet called from a `no_std` program (S7) |
 | Payer-side configure with ECDH-derived key | medium | zk-sdk API verified; domain separation unreviewed |
-| Sweep authorised by P as a transaction signer | high | runtime verifies RFC 8032 algebraically; slnt signs this way |
-| Transaction counts and CU | medium-high | sample client + constants |
-| Discovery via program-account filter | high | standard RPC |
-| Privacy claims | medium | residuals documented, no formal analysis |
-
-## Open questions
-
-1. Payer funding source: require an existing confidential balance (clean) or allow a public deposit path (one visible amount). Recommendation: confidential-only for v1.
-2. Should the client refuse sweeps to a reused destination, or only warn. Recommendation: refuse by default, flag to override.
-3. Batch client: how many recipients per run before lookup tables and proof staging become the bottleneck. Measure in week 2.
+| Costs | medium | rent exact; priority fees unmeasured |
+| Privacy claims | medium | residuals in privacy.md; no formal analysis |

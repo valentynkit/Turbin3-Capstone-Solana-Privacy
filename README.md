@@ -2,7 +2,7 @@
 
 A confidential payout rail on Solana: a visible payer pays many recipients with encrypted amounts, and recipients who want it get a fresh, unlinkable account per payment that the payer can set up alone. The money stays an ordinary Token-2022 token and an auditor can still read amounts. Built from two existing halves that were never joined, stealth addresses and Token-2022 confidential balances, with no pool, no relayer, no MPC, no enclave. Turbin3 Q3 2026 Builders Cohort capstone.
 
-Status: design and research phase, no code yet. Two Anchor programs and a TypeScript CLI are planned; see `docs/plan.md`.
+Status: design and research phase, no code yet. One Pinocchio program and one Rust CLI are planned; a stealth payment is one transaction per side. See `docs/plan.md`.
 
 Docs live in `docs/`. Start at `docs/README.md` for the map and the reading order per role.
 
