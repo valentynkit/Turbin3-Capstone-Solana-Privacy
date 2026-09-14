@@ -1,11 +1,11 @@
 ---
 status: draft
-last_verified: 2026-09-11
+last_verified: 2026-09-14
 ---
 
 # Landscape
 
-TL;DR: Every shipped Solana privacy system is a custodial pool with an anonymity set plus a relayer, enclave, MPC committee, or prover server. We are the pool-less option: weaker (sender visible) and simpler (money stays a normal token, nothing to trust beyond Solana). Compliance posture is defensible but untested; demand is strongest in payroll.
+TL;DR: Every shipped Solana privacy system is a custodial pool with an anonymity set plus a relayer, enclave, MPC committee, or prover server. We are the pool-less option: weaker (payer visible) and simpler (money stays a normal token, nothing to trust beyond Solana). Compliance posture is defensible but untested; demand is strongest in payroll.
 
 ## Positioning
 
@@ -16,17 +16,17 @@ Not the first private payment on Solana. The first pool-less one.
 | Funds stay ordinary Token-2022 tokens | no, custodied in the pool program | yes |
 | Trust beyond Solana | enclave, MPC committee, or prover server | none; proofs made locally, verified by Solana's own program |
 | Needs an anonymity set | yes, weak when the pool is small | no, each payment is private on its own |
-| Sender | hidden | visible, by design |
+| Payer | hidden | visible, by design |
 | Audit | provider viewing keys, varies | native mint auditor plus per-payment key disclosure |
 | Regulatory shape | mixer-adjacent | private statement, visible payer |
 
 ## Competitors, verified against primary docs
 
-| System | Hides sender / recipient / amount | Funds stay standard tokens | Trust beyond Solana | Compliance | Status |
+| System | Hides payer / recipient / amount | Funds stay standard tokens | Trust beyond Solana | Compliance | Status |
 |---|---|---|---|---|---|
 | Hinkal | yes / yes / yes | no | TEE enclave does proving and key custody, relayer | KYT screening, selective disclosure | mainnet, program closed source |
 | Umbra (Solana, unrelated to Ethereum Umbra) | partial / yes / yes | no | Arcium MPC majority, relayer, indexer | hierarchical viewing keys | mainnet-beta, no audit found |
-| Helius Rings | default: no / no / yes; anonymous ring: yes / yes / yes | no | prover server, delegated decryption (provider reads balances) | viewing keys, per-ring auditor, freeze lists | devnet, audits in progress |
+| Helius Rings | default: no / no / yes; anonymous ring: yes / yes / yes | no | prover server; anonymous mode currently requires delegated decryption (an implementation choice, not inherent to ZK pools) | viewing keys, per-ring auditor, freeze lists | devnet, audits in progress |
 | Privacy Cash | weak / public at withdrawal / no | no | relayer sees recipient and amount | deposit screening | mainnet |
 | Light PSP (2022) | yes / yes / yes | no | relayer | none | dormant |
 | Arcium CSPL | unverified / unverified / claimed | yes | permissioned MPC clusters | none documented | not shipped |
@@ -37,7 +37,9 @@ Details and sources: research/2026-09-11-competitors-privacy-verified.md.
 
 ## When to use a pool instead
 
-If the sender must be hidden, use a pool. Ours is the wrong tool for that and we say so. If amounts must be hidden but the recipient is a known merchant, confidential balances alone are enough.
+If the payer must be hidden, use a pool. Ours is the wrong tool for that and we say so. If amounts must be hidden but the recipient is a known merchant, confidential balances alone are enough.
+
+What is inherent to a pool, regardless of implementation: funds become notes inside the pool program (nothing else can hold them until withdrawal), privacy depends on how many others are in the pool, and the recipient must be onboarded before anyone can pay them. Provider visibility (Helius's delegated decryption) is a product choice and not an argument against pools in general.
 
 ## Compliance posture
 
@@ -50,7 +52,7 @@ Findings [verified against EUR-Lex, govinfo, Cornell LII, Treasury, solana-progr
 
 Exposure [open]: FinCEN's October 2023 proposed rule defines mixing as obfuscating "source, destination, or amount" and lists "single-use wallets, addresses, or accounts" as an indicator. A literal reading reaches stealth addresses without any pool. Counter: source is public, there is no commingling, amounts are recoverable by disclosure. No agency has addressed this shape; the rule's finalisation status is unverified.
 
-Recommendation: state this as a considered position, not a cleared one; keep the visible sender as a hard design constraint; get outside counsel before any "compliant by design" claim.
+Recommendation: state this as a considered position, not a cleared one; keep the visible payer as a hard design constraint; get outside counsel before any "compliant by design" claim.
 
 ## Target users and demand evidence
 
@@ -66,5 +68,5 @@ Reading: the pain is real and named; nobody on Solana has stated it in their own
 
 ## Open questions
 
-1. Does the FinCEN mixing definition, if finalised, reach single-use addresses with a visible sender? Owner: Valentyn; resolve by: before any public launch claim; recommendation: assume yes for planning, keep the sender visible, document disclosure paths.
+1. Does the FinCEN mixing definition, if finalised, reach single-use addresses with a visible payer? Owner: Valentyn; resolve by: before any public launch claim; recommendation: assume yes for planning, keep the payer visible, document disclosure paths.
 2. Is there a named Solana payroll or DAO platform that will say "we want this"? Owner: team; resolve by: week 2; recommendation: ask Zebec, Streamflow, Superteam Earn directly.

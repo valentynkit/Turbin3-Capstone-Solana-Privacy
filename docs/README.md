@@ -16,7 +16,7 @@ TL;DR: one flat folder. `brief.md` says what and why, `design.md` says how, `res
 | `faq.md` | Questions people ask, answers, short message variants | comms |
 | `loi/` | Cohort deliverable: proposal and red-team log | grading |
 | `research/` | Dated evidence, immutable, `YYYY-MM-DD-topic.md` | facts |
-| `assets/` | Diagram sources, pitch page | visuals |
+| `assets/` | `how-it-works.html` (current explainer), `architecture-simple.html` | visuals |
 
 ## Reading order
 
@@ -36,9 +36,9 @@ TL;DR: one flat folder. `brief.md` says what and why, `design.md` says how, `res
 
 | File | Status |
 |---|---|
-| brief.md | draft |
+| brief.md | draft, re-centred 2026-09-14 |
 | landscape.md | draft |
-| design.md | draft |
+| design.md | draft, sweep corrections 2026-09-14 |
 | crypto.md | draft |
 | privacy.md | draft |
 | plan.md | draft |

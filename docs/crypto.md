@@ -1,6 +1,6 @@
 ---
 status: draft
-last_verified: 2026-09-11
+last_verified: 2026-09-14
 ---
 
 # Cryptography
@@ -29,15 +29,15 @@ Why: RFC 5869 says distinct `info` under a PRF gives computationally independent
 
 ## Signing with the one-time key
 
-Solana's Ed25519 precompile verifies the RFC 8032 equation only, so a signature made with the raw scalar p is accepted. ed25519-dalek's hazmat interface signs with a raw scalar but is the interface implicated in RUSTSEC-2022-0093 (double public key signing oracle): the nonce must be bound to p. Use the "nonce-seed" label, never a fixed or caller-supplied value.
+P is a real Ed25519 public key and the recipient holds its scalar p, so the recipient signs the sweep *transaction* as P and pays the fee from P's system account (funded with dust by the payer). The runtime verifies the signature; the program only checks that P is a signer and matches the stored key. No precompile introspection, no sysvar, no relayer.
 
-In-program verification reads the instructions sysvar: check the sysvar address is canonical, the referenced instruction's program is the Ed25519 program, the pubkey / message / signature match exactly, and the instruction index is fixed. This is the Wormhole 2022 checklist.
+Raw-scalar signing uses ed25519-dalek's hazmat interface, the one implicated in RUSTSEC-2022-0093 (double public key signing oracle): the nonce must be bound to p. Use the "nonce-seed" label, never a fixed or caller-supplied value. The sRFC-42 reference signs transactions this way already.
 
 ## Known concerns and assessment
 
 | Concern | Assessment |
 |---|---|
-| Sender holds the account's ElGamal and AES keys permanently | Cannot forge sweeps (needs p; b_spend never touches S). In a strict one-time model learns only the amount it sent and the public sweep event. Accepted trade-off, enforced by one-time semantics. [decided, open to reversal after review] |
+| Payer holds the account's ElGamal and AES keys permanently | Cannot forge sweeps (needs p; b_spend never touches S). In a strict one-time model learns only the amount it paid and the public sweep event; hence sweeps go to a fresh self-owned account before any spend. Accepted trade-off, enforced by one-time semantics. [decided, open to reversal after review] |
 | Does the ElGamal key leak p or b_spend | No: distinct Expand labels; b_spend independent of S |
 | Key-validity proof binds an owner | No: it proves knowledge of the ElGamal secret only; Token-2022 separately requires the owner signature |
 | View tag leaks a byte of S | Accepted, standard (Monero, ERC-5564); must be domain-separated from the tweak |
@@ -45,18 +45,18 @@ In-program verification reads the instructions sysvar: check the sysvar address 
 
 ## Alternatives
 
-- **Registry path.** Token-2022's ConfigureAccountWithRegistry skips the proof and owner signature if a registry whose owner equals the token-account owner exists. The recipient would have to create that registry per one-time key, online. Removes the sender's key knowledge; kills offline receiving. Documented option, not default.
-- **Pre-published one-time keys** with pre-verified proof context accounts, consumed by senders. Any party can reference them. Refill bursts correlate a recipient's accounts; needs an always-on service. Rejected for v1.
+- **Registry path.** Token-2022's ConfigureAccountWithRegistry skips the proof and owner signature if a registry whose owner equals the token-account owner exists. The recipient would have to create that registry per one-time key, online. Removes the payer's key knowledge; kills offline receiving. Documented option, not default.
+- **Pre-published one-time keys** with pre-verified proof context accounts, consumed by payers. Any party can reference them. Refill bursts correlate a recipient's accounts; needs an always-on service. Rejected for v1.
 
 ## Reviewer checklist
 
 - Four labels never overlap; `ct_ikm`, not raw S, feeds the zk-sdk derivation.
 - Torsion-free B_spend; zero-S rejection both sides.
 - Raw Ed25519 nonce bound to p.
-- Explicit decision on sender key knowledge, recorded in decisions.md.
+- Explicit decision on payer key knowledge, recorded in decisions.md.
 - Re-verify crate and npm versions before shipping.
 
 ## Open questions
 
 1. External review of the derivation tree. Owner: Valentyn. Resolve by: week 1. Recommendation: ask the sRFC-42 author and one Anza zk contributor; post the tree to the sRFC discussion.
-2. Is `pda_wallet_public_seed` needed, or is our own seed enough? It is in npm but not in crate 7.0.1. Recommendation: own seed; treat the helper as reference.
+2. Resolved 2026-09-11: `derive_confidential_keys_from_ikm` is published (solana-zk-sdk 7.0.1, @solana/zk-sdk 0.5.2). `pda_wallet_public_seed` is on main and in npm, not in the crate; we use our own seed and treat the helper as reference.

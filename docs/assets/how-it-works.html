@@ -1,0 +1,156 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Confidential payout rail on Solana: how it works</title>
+<style>
+body{font:17px/1.55 -apple-system,Inter,Helvetica,sans-serif;background:#16161d;color:#dcd7ba;max-width:1080px;margin:40px auto;padding:0 32px}
+h1{font-size:38px;margin:0 0 6px}h2{font-size:24px;color:#7e9cd8;margin:44px 0 12px;border-bottom:1px solid #2a2a37;padding-bottom:6px}
+h3{color:#e6c384;font-size:18px;margin:22px 0 8px}
+.tag{color:#98bb6c;font-family:monospace;letter-spacing:.08em}
+.lead{font-size:22px;margin:8px 0 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:#1f1f28;border:1px solid #2a2a37;border-radius:10px;padding:16px 18px}.card h3{margin:0 0 8px}
+.yes{color:#98bb6c}.no{color:#e46876}.mid{color:#e6c384}
+table{border-collapse:collapse;width:100%;margin:8px 0}td,th{border-bottom:1px solid #2a2a37;padding:8px 10px;text-align:left;vertical-align:top}th{color:#7e9cd8}
+.mermaid{background:#1f1f28;border:1px solid #2a2a37;border-radius:10px;padding:14px;margin:12px 0}
+.step{display:grid;grid-template-columns:44px 1fr;gap:12px;margin:10px 0;align-items:start}
+.n{width:36px;height:36px;border-radius:50%;background:#2a2a37;color:#7fb4ca;display:flex;align-items:center;justify-content:center;font-weight:700}
+code{color:#e6c384;background:#1f1f28;padding:1px 5px;border-radius:4px}
+.note{border-left:3px solid #e6c384;padding:8px 14px;background:#1f1f28;border-radius:0 8px 8px 0;margin:12px 0}
+small{color:#9c9a8f}
+</style>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({startOnLoad:true,theme:'dark',themeVariables:{fontSize:'16px',primaryColor:'#1f1f28',primaryBorderColor:'#7e9cd8',primaryTextColor:'#dcd7ba',lineColor:'#9c9a8f',clusterBkg:'#1a1a22',clusterBorder:'#2a2a37',actorBkg:'#1f1f28',actorBorder:'#7e9cd8',actorTextColor:'#dcd7ba',signalColor:'#dcd7ba',signalTextColor:'#dcd7ba',noteBkgColor:'#2a2a37',noteTextColor:'#dcd7ba',noteBorderColor:'#54546d'}});
+</script></head><body>
+
+<div class="tag">HOW IT WORKS · DRAFT · 2026-09-12</div>
+<h1>A confidential payout rail on Solana</h1>
+<p class="lead">Pay many people with hidden amounts. Recipients can stay unlinkable. The payer stays visible. The money stays an ordinary token. An auditor can still read the numbers. No pool, nothing to trust beyond Solana.</p>
+
+<h2>1. The problem</h2>
+<p>Every payout on Solana is public: who was paid, and how much. That is the stated reason companies keep payroll, grants, and supplier payments off-chain: "our books would be public."</p>
+<p>Solana already has a fix for the amount, and a draft fix for the recipient. Neither is usable for real payout flows, and they were never joined.</p>
+<div class="grid">
+<div class="card"><h3>Confidential balances (Token-2022)</h3>Amount: <span class="yes">hidden</span>. Recipient: <span class="no">a fixed public address</span>, so the payment pattern is visible. Each transfer needs three proofs and several transactions, and there is no tooling to run a payout to fifty people.<br><small>Live on mainnet. Almost nobody uses it.</small></div>
+<div class="card"><h3>Stealth addresses (sRFC-42)</h3>Recipient: <span class="yes">hidden</span>, fresh address per payment. Amount: <span class="no">public</span>. And it cannot be combined with confidential balances: setting up a confidential account needs the owner's signature and encryption key, which a payer sending to a fresh address does not have.<br><small>Draft, devnet reference.</small></div>
+</div>
+
+<h2>2. What we build</h2>
+<div class="grid">
+<div class="card"><h3>The rail</h3>A payout run: N recipients, hidden amounts, proofs generated in batch on the payer's machine, fees handled, rent reclaimed, one auditor path. This is where most of the engineering is.</div>
+<div class="card"><h3>The primitive</h3>For recipients who want to be unlinkable: a fresh, program-owned account per payment that the payer can set up alone, because its encryption key is derived from the secret both sides share. Nobody else has this.</div>
+</div>
+<div class="note">Two recipient modes, chosen per recipient in the same run. <b>Plain:</b> the recipient has a confidential account already; we transfer to it. Amount hidden, address fixed. <b>Stealth:</b> the recipient has published one reusable address; each payment lands in a fresh account only they can find. Amount and recipient hidden.</div>
+
+<h2>3. Who is involved</h2>
+<pre class="mermaid">
+flowchart LR
+  subgraph OFF["Off-chain"]
+    S["Payer CLI<br/>batch: derive, prove, pay"]
+    R["Recipient CLI<br/>publish, scan, sweep"]
+  end
+  subgraph OURS["On-chain, ours"]
+    REG["Address book<br/>one reusable address per recipient"]
+    ST["Stealth program<br/>owns the fresh accounts<br/>open, configure, fund, sweep, close"]
+  end
+  subgraph SOL["On-chain, Solana's, unchanged"]
+    T22["Token-2022<br/>confidential balances, auditor key"]
+    ZK["ZK proof program"]
+  end
+  R -- "publish" --> REG
+  S -- "look up" --> REG
+  S -- "stealth recipients" --> ST
+  S -- "plain recipients, direct transfer" --> T22
+  R -- "sweep, close" --> ST
+  ST -- "signs as owner" --> T22
+  S -- "proofs" --> ZK
+  R -- "proofs" --> ZK
+  R -. "scan by view tag" .-> ST
+</pre>
+<p>Proofs are made on the payer's or recipient's own machine and verified by Solana's own program. No server, no relayer, no committee, no enclave.</p>
+
+<h2>4. The trick behind stealth mode</h2>
+<p>Token-2022 requires the account <b>owner</b> to sign the setup and prove they hold the encryption key. A payer sending to a fresh address has neither. Two changes remove the wall:</p>
+<div class="grid">
+<div class="card"><h3>The fresh account is owned by a program</h3>A program can sign for accounts it owns, so it does the setup on the payer's behalf.</div>
+<div class="card"><h3>The encryption key comes from the shared secret</h3>The stealth handshake gives payer and recipient a secret nobody else has (ECDH). The account's encryption key is derived from it. The payer can make the proof; the recipient can later decrypt.</div>
+</div>
+<table>
+<tr><th>Secret</th><th>Payer</th><th>Recipient</th><th>Everyone else</th><th>Lets you</th></tr>
+<tr><td>Shared secret</td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td><td>derive the fresh address and the encryption key</td></tr>
+<tr><td>Account encryption key</td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td><td>set up the account; read this one balance</td></tr>
+<tr><td>One-time spending key <code>p</code></td><td class="no">no</td><td class="yes">yes</td><td class="no">no</td><td>move the money out</td></tr>
+<tr><td>Auditor key, or a disclosed account key</td><td colspan="3">auditor only</td><td>read amounts, never spend</td></tr>
+</table>
+<p>The payer can set up and fund, and can never take the money. Only the recipient holds <code>p</code>. Nobody without the recipient's scan key can tell which fresh accounts are theirs.</p>
+
+<h2>5. One payout run, step by step</h2>
+<div class="step"><div class="n">1</div><div><b>Recipients publish, once.</b> Stealth recipients put one reusable address in the address book. Plain recipients just have a confidential account.</div></div>
+<div class="step"><div class="n">2</div><div><b>Payer prepares the run.</b> For each stealth recipient: derive a fresh address <code>P</code>, a view tag, and an encryption key. For everyone: generate the transfer proofs, in batch, locally.</div></div>
+<div class="step"><div class="n">3</div><div><b>Payer executes.</b> Plain recipients get a confidential transfer. Stealth recipients get a program-owned account created and configured, then funded, plus a little SOL on <code>P</code> for their future fees. Amounts are encrypted from the first block. Proof accounts are closed as they go; rent comes back.</div></div>
+<div class="step"><div class="n">4</div><div><b>Stealth recipients find their money.</b> Filter fresh accounts by view tag (255 of 256 discarded instantly), try the handshake on the rest, decrypt the balance.</div></div>
+<div class="step"><div class="n">5</div><div><b>Sweep.</b> The recipient signs a transaction with <code>P</code> and pays the fee from <code>P</code>, so their own wallet never appears. The program checks the signature and moves the funds, still encrypted, into a fresh account of the recipient's own. The old one is closed, rent returned.</div></div>
+<div class="step"><div class="n">6</div><div><b>Audit, if required.</b> The mint's auditor key reads every amount on that mint. Or either party discloses the key for one payment. Nobody gets spend access.</div></div>
+
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant S as Payer
+  participant P as Stealth program
+  participant T as Token-2022 + ZK
+  participant R as Recipient
+  R->>P: publish reusable address, once
+  S->>S: for each recipient derive keys, generate proofs in batch
+  S->>T: plain recipients, confidential transfer
+  S->>P: stealth recipients, open + configure + fund
+  P->>T: create program-owned account, configure, confidential transfer in
+  Note over S,R: public sees the payer, some fresh accounts, encrypted amounts. No recipients.
+  R->>R: scan by view tag, decrypt
+  R->>P: sweep, signed with one-time key P, fee paid by P
+  P->>T: confidential transfer to the recipient's own fresh account
+  R->>P: close, rent back
+</pre>
+
+<h2>6. What an observer sees</h2>
+<table>
+<tr><th>Artifact</th><th>Linkable to the recipient?</th><th>Amount?</th></tr>
+<tr><td>Payer's transfers to plain recipients</td><td class="no">yes, fixed addresses</td><td class="yes">encrypted</td></tr>
+<tr><td>Fresh stealth account (ephemeral key, view tag, P)</td><td class="yes">no, needs the scan key</td><td>none</td></tr>
+<tr><td>Payer's transfer into a fresh account</td><td class="yes">no</td><td class="yes">encrypted, auditor readable</td></tr>
+<tr><td>Sweep into the recipient's next fresh account</td><td class="yes">no</td><td class="yes">encrypted</td></tr>
+<tr><td>Sweep into a reused main account</td><td class="no">yes, links every account swept there</td><td class="yes">encrypted</td></tr>
+<tr><td>Timing of the payout run</td><td class="mid">links the payer to the fresh accounts, not to recipients</td><td>none</td></tr>
+</table>
+
+<h2>7. Pools versus this</h2>
+<table>
+<tr><th></th><th>Pools (Helius Rings, Hinkal, Umbra)</th><th>This</th></tr>
+<tr><td>Hides the payer</td><td class="yes">yes</td><td class="no">no, on purpose</td></tr>
+<tr><td>Hides recipient and amount</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+<tr><td>Recipient must be onboarded first</td><td class="no">yes</td><td class="yes">no, one published address</td></tr>
+<tr><td>Money stays an ordinary token</td><td class="no">no, becomes a note inside the pool</td><td class="yes">yes, any program can hold it</td></tr>
+<tr><td>Needs a crowd to be private</td><td class="no">yes</td><td class="yes">no</td></tr>
+<tr><td>Trust beyond Solana</td><td class="no">enclave, MPC committee, or prover server</td><td class="yes">none</td></tr>
+<tr><td>Compliance shape</td><td class="mid">mixer family, viewing keys vary</td><td class="yes">visible payer, auditor key, per-payment disclosure</td></tr>
+</table>
+<p>Different jobs. A pool when the payer must be hidden. This when a visible organisation pays people and the tokens must stay usable.</p>
+
+<h2>8. Limits we state up front</h2>
+<div class="grid">
+<div class="card"><h3>Payer is visible</h3>Deliberate. It keeps this out of mixer territory. Need payer privacy? Use a pool.</div>
+<div class="card"><h3>Consolidation links</h3>Sweeping many fresh accounts into one main account clusters them. Rule: sweep into a fresh account, spend from there.</div>
+<div class="card"><h3>Payer holds that one account's key</h3>Can read that balance until close. Hence one-time accounts, and never spending directly from a payer-funded account.</div>
+<div class="card"><h3>Cost</h3>Stealth mode is about twice a plain confidential transfer; roughly ten transactions and 0.013 SOL locked until close. Batching amortises the proof work, not the transaction count.</div>
+<div class="card"><h3>Adoption we don't control</h3>No wallet shows confidential balances. Issuers choose whether to set an auditor key. The rail is useful only as far as confidential balances are.</div>
+<div class="card"><h3>Review pending</h3>Two keys from one shared secret must be domain-separated. Recipe written, outside reviewer not yet.</div>
+</div>
+
+<h2>9. Glossary</h2>
+<table>
+<tr><td><b>Confidential balance</b></td><td>a Token-2022 account whose balance and transfer amounts are encrypted; proofs show the math is right without revealing numbers</td></tr>
+<tr><td><b>Stealth address</b></td><td>a fresh address per payment, derived from one reusable published address, that only the recipient can recognise and spend from</td></tr>
+<tr><td><b>ECDH shared secret</b></td><td>a secret two parties can each compute from their own private key and the other's public key, and nobody else can</td></tr>
+<tr><td><b>View tag</b></td><td>one byte of the shared secret hash, published so the recipient can skip 255 of 256 accounts cheaply</td></tr>
+<tr><td><b>Program-owned account (PDA)</b></td><td>an account whose owner is a program, not a keypair; the program can sign for it</td></tr>
+<tr><td><b>Auditor key</b></td><td>a key set on the mint by its issuer that can decrypt every amount on that mint, read only</td></tr>
+<tr><td><b>Pool</b></td><td>a program holding everyone's funds as encrypted notes so transfers inside it can't be traced; privacy comes from the crowd</td></tr>
+</table>
+</body></html>

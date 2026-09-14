@@ -1,11 +1,23 @@
 ---
 status: draft
-last_verified: 2026-09-11
+last_verified: 2026-09-14
 ---
 
 # Decisions
 
 TL;DR: append-only, newest first. Each entry: what, why, what was rejected. Docs describe the present; this file holds the history.
+
+## 2026-09-14 Payments privacy is the capstone; batch exchange dropped
+
+Decision: return to this project. The confidential batch exchange explored with a teammate on 2026-09-12 to 14 is not pursued.
+Why: the exchange's core claim (a program clearing hidden orders) needs a trusted decryptor, a committee, or a reveal step; it fits none of the cohort's four domains; nothing like it is live on Solana and demand is unproven. This project fits Payments, is verified step by step against Token-2022 source, and demos from a terminal.
+Rejected: continuing the exchange as a joint capstone.
+
+## 2026-09-14 Re-centre on the payout rail; two sweep corrections
+
+Decision: headline is a confidential payout rail with two recipient modes (plain confidential account; stealth one-time account). Batch payout tooling moves from phase two into the core. Two design changes: the recipient signs the sweep transaction with the one-time key P and pays the fee from dust the payer left on P (no precompile introspection, no relayer); sweeps always go to a fresh self-owned account, never spent directly from a payer-funded account (the payer holds that account's key).
+Why: demand evidence points at payout flows, not "pay a stranger"; the honest critique is that recipient privacy is second-order to amount privacy and the rail attacks the first-order pain while keeping the primitive as the differentiator. The sweep corrections came from tracing the fee-payer problem and the payer-key issue to their conclusions.
+Rejected: "pay a stranger privately" as the headline; precompile-based in-program signature verification; spending directly from one-time accounts.
 
 ## 2026-09-11 Payroll is phase two, not out of scope
 

@@ -1,92 +1,94 @@
 ---
 status: draft
-last_verified: 2026-09-11
+last_verified: 2026-09-14
 ---
 
 # Brief
 
-TL;DR: Private payments on Solana that hide the recipient and the amount from the public, keep the sender visible, and let an auditor read amounts. Built on Token-2022 confidential balances plus stealth addresses, with no pool, no relayer, no MPC, no enclave.
+TL;DR: a confidential payout rail on Solana. A visible payer pays many recipients with encrypted amounts; recipients who want it get a fresh, unlinkable account per payment that the payer can set up alone. No pool, no relayer, no MPC, no enclave. Money stays an ordinary Token-2022 token; an auditor can read amounts.
 
-## One line
+How to read: **[verified]** checked against source, chain, or primary document; **[likely]** strong evidence; **[open]** unknown.
 
-Pay anyone on Solana so the public sees neither who received it nor how much, while the money stays an ordinary token and an auditor can still read the numbers.
+## 1. One line
 
-## Problem
+Pay people on Solana without the public seeing who got paid or how much, while the payer stays visible and an auditor can still read the numbers.
 
-A public ledger turns every payment into a permanent record. Pay a contractor once and anyone can follow what they earn from then on. Public-company CFOs say this is what stops them moving payroll to stablecoins; fewer than 1% of businesses pay salaries in crypto (research: demand).
+## 2. Problem
 
-Solana has two halves of a fix that were never joined:
+Every payout on a public ledger is a permanent record: who was paid and how much. Companies say this is what keeps payroll and supplier payments off-chain: "every public-company CFO gets excited about stablecoins until they realize their payroll would be public" [research: demand].
+
+Solana has both halves of a fix and neither is usable for a real payout flow:
 
 | Tool | Hides | Leaves public | Status |
 |---|---|---|---|
-| Token-2022 confidential balances | the amount | the recipient's fixed address, so the payment pattern is linkable | Mainnet since mid-2026, usage near zero, no wallet support [verified] |
-| Stealth addresses (sRFC-42) | the recipient, via a fresh address per payment | the amount | Draft, devnet reference, dormant since June [verified] |
+| Token-2022 confidential balances | the amount | the recipient's fixed address, so the pattern "X pays W monthly" is visible | mainnet since mid-2026, usage near zero, no wallet support [verified] |
+| Stealth addresses (sRFC-42) | the recipient (fresh address per payment) | the amount | draft, devnet reference, dormant since June [verified] |
 
-They were never joined for a concrete reason [verified]: setting up a confidential account requires a proof that you hold its encryption key and a signature from the account owner. A sender paying a fresh stealth address has neither. The recipient would have to be online for every payment, which defeats a reusable address.
+They cannot be combined today for a concrete reason [verified]: setting up a confidential account requires the owner's signature and a proof that the owner holds the encryption key. A payer sending to a fresh address has neither. So the recipient would have to be online and set up every account by hand.
 
-## Idea
+## 3. What we build
 
-Make the one-time account owned by our program, and derive its encryption key from the secret the sender and recipient already share through the stealth handshake. The sender can then produce the key proof, the program signs as owner, and the sender sets up and funds the account alone. The recipient, who also knows the shared secret, finds the account, decrypts the balance, and proves ownership of the one-time key, which only they hold.
+**The rail.** A payout run to N recipients with hidden amounts: proofs generated in batch on the payer's machine, fees handled, rent reclaimed, an auditor path. Most of the engineering lives here.
 
-Four steps: publish one reusable address; pay into a fresh program-owned account with an encrypted amount; find it and sweep it; disclose to an auditor if required.
+**The primitive.** For recipients who want to be unlinkable: a fresh, program-owned account per payment whose encryption key is derived from the secret both sides share through the stealth handshake. The payer can produce the key proof and the program signs as owner, so the payer creates, configures, and funds the account alone. Only the recipient can spend from it.
 
-## What is new, what is not
+Two recipient modes in the same run:
+- **Plain.** The recipient already has a confidential account; we transfer to it. Amount hidden, address fixed.
+- **Stealth.** The recipient published one reusable address; each payment lands in a fresh account only they can find. Amount and recipient hidden.
 
-New, as far as we can find [likely, competitors verified]:
-- Recipient privacy and amount privacy together, on unwrapped tokens, with no pool, relayer, MPC, or enclave. Every shipped Solana privacy system is a custodial pool that needs one of those.
-- Sender-side setup of a confidential account for an offline recipient via an ECDH-derived key. The zk-sdk ships the derivation function [verified, published in solana-zk-sdk 7.0.1 and @solana/zk-sdk 0.5.2]; nobody has wired it to a stealth scheme.
-- Verifying a stealth one-time-key signature inside a program to release funds from a program-owned account.
+## 4. What is new, what is not
 
-Not new, and cited:
-- Program-owned confidential accounts (Occult does it) [verified].
-- The stealth construction itself (BIP-352, ERC-5564, sRFC-42).
-- Discovery by scan and trial decryption (Zcash, Monero view tags).
+New, as far as we can find [likely, research: competitors-privacy-verified]:
+- The payer sets up the recipient's confidential account for them. Solana's zk-sdk ships the key derivation and a helper for program-owned accounts [verified, published in solana-zk-sdk 7.0.1 and @solana/zk-sdk 0.5.2]; nobody has connected them to a stealth scheme.
+- Recipient privacy plus amount privacy on unwrapped tokens, with no pool, relayer, committee, or enclave. Every shipped Solana privacy system is a custodial pool that needs at least one of those.
 
-## Who it is for
+Not new, and cited: program-owned confidential accounts (Occult) [verified]; the stealth construction (BIP-352, ERC-5564, sRFC-42); scan-and-trial-decrypt discovery (Zcash, Monero view tags); batch payout tooling in general.
 
-Launch use, one-off payments: grants, bounties, invoices between pseudonymous entities, donations. Cheap to demo, no batching needed.
+What the primitive is not: "rotating addresses". Those exist. The new part is payer-side setup of a confidential account for a stranger.
 
-Primary buyers, phase two: stablecoin payroll and B2B settlement platforms. The demand evidence is strongest there (Toku/Aleo/Paxos private payroll launch, Zebec's $500M/year payroll with no privacy, Helius naming payroll platforms first). Payroll needs batch tooling and an automated close crank; the primitive is the same.
+## 5. Who it is for
 
-Merchant amount-hiding (PayPal's stated reason for PYUSD confidential transfers) is served by confidential balances alone; we don't compete there.
+Primary buyers: stablecoin payroll and B2B settlement platforms serving payers who are public anyway and want their counterparties and amounts private (Toku/Aleo/Paxos private payroll launch, Zebec's $500M/year on Solana with no privacy, Helius naming payroll platforms first) [research: demand]. Launch use: one-off payouts (grants, bounties, invoices, donations), which need no batching. Merchant revenue hiding (PayPal's stated reason for PYUSD confidential transfers) is served by confidential balances alone; we don't compete there.
 
-## Limitations, stated up front
+## 6. Limitations stated up front
 
-- **Sender is visible.** By design; it is what keeps this outside mixer territory. If you need sender privacy, use a pool (Hinkal, Helius Rings).
-- **Consolidation re-links.** Sweeping many one-time accounts into one lets an observer cluster them. Inherent to stealth addresses. Mitigation: spend from them directly or sweep into a fresh one. [open: MPC-based consolidation as phase three]
-- **Sender keeps the decryption key of that one account.** Learns nothing new in a strict one-time model, but it is a departure from "only the owner can decrypt". The program enforces one-time use. The alternative (recipient pre-registers keys) needs the recipient online. [open, see crypto.md]
-- **Cost.** About ten transactions per payment end to end and about 0.013 SOL locked until close [likely, from the Foundation's sample client]. Fine for one-off, needs batching for payroll.
-- **Regulatory exposure.** FinCEN's 2023 proposed mixing definition lists single-use addresses as an indicator on its own. Counter: visible sender, no pool, auditor-readable amounts. No agency has drawn that line. [open, see landscape.md]
-- **Audit access depends on who controls the mint.** The mint auditor key belongs to the mint authority (Circle for USDC). What we add is per-payment key disclosure by either party, which needs no issuer cooperation.
-- **Cryptographic review pending.** Two derivations from one shared secret must be domain-separated; recipe exists, external review does not. [open]
+- **Payer is visible.** By design; it keeps this outside mixer territory. Need payer privacy? Use a pool.
+- **Payer shields once.** The payer must hold a confidential balance; converting treasury into it shows an amount that one time. The recipient's fresh account never goes through a public balance.
+- **Consolidation re-links.** Sweeping many fresh accounts into one clusters them. Rule: sweep into a fresh self-owned account, spend from there. Truly unlinkable consolidation is out of scope. [open: MPC-held balance, phase three]
+- **Payer holds that one account's key.** Learns nothing new in a strict one-time model; accounts are one-time and closed after sweep, and no one spends directly from a payer-funded account.
+- **Cost.** A confidential transfer is three proofs, about five transactions; stealth mode roughly doubles it. About 0.013 SOL locked per payment until close [likely]. Batching amortises proof work, not transaction count.
+- **Audit access depends on the mint.** The mint auditor key belongs to the mint authority (Circle for USDC). What we add: either party can disclose one payment's key. [verified, research: compliance]
+- **Regulatory exposure.** FinCEN's 2023 proposed mixing definition lists single-use addresses on its own. Counter: visible payer, no pool, recoverable amounts. No agency has drawn the line. [open]
+- **Adoption we don't control.** No wallet shows confidential balances. The rail is useful only as far as confidential balances are.
+- **Cryptographic review pending.** Two derivations from one shared secret must be domain-separated; recipe written, reviewer not yet. [open]
 
-## Scope
+## 7. Scope
 
-Build: two Anchor programs (address registry; one-time account lifecycle), a TypeScript CLI (register, pay, scan, sweep, close, bench), a privacy model, adversarial tests, a devnet demo, a write-up posted to the sRFC-42 discussion.
+Build: two Anchor programs (address registry; one-time account lifecycle), a TypeScript client (register, pay, batch pay, scan, sweep, close, bench), a privacy model, adversarial tests, a devnet demo, a write-up posted to the sRFC-42 discussion.
 
-Do not build now: batch payroll tooling, wallet integration, a web app beyond a status page, our own proof system, unlinkable consolidation, mobile.
+Do not build: wallet integration, a web app beyond a status page, our own proof system, unlinkable consolidation, mobile.
 
-## Success criteria
+## 8. Success criteria
 
-- Pay, scan, sweep, close end to end on devnet on a Token-2022 mint with an auditor key.
-- Published measurements: transactions, compute, SOL locked, wall-clock per payment.
-- A privacy model listing every on-chain artifact per payment and what it links.
+- A payout run to N recipients on devnet, some plain, some stealth, then an auditor decrypting one payment.
+- Published measurements: transactions, compute, SOL locked, wall-clock per payment and per run.
+- A privacy model listing every artifact per payment and what it links.
 - One external applied-cryptography review, findings addressed.
 - A write-up someone else could implement from.
 
-## Team
+## 9. Team
 
-Valentyn: programs, key derivation, ownership proof, privacy model. Teammate: TypeScript SDK and CLI, proof generation, benchmarks. Teammate: devnet deployment, fee-paying relayer, status page, demo.
+Valentyn: programs, key derivation, sweep authorisation, privacy model. Teammates: TypeScript SDK and batch client; devnet deployment, status page, demo.
 
-## Claims we make
+## 10. Claims we make
 
 | Claim | Confidence | Source |
 |---|---|---|
-| No shipped Solana system hides recipient and amount on unwrapped tokens without a pool, relayer, MPC, or enclave | likely | research: competitors-privacy-verified |
-| A program-owned account can be configured for confidential transfers via invoke_signed | verified | research: token2022-mechanics-verified |
-| The zk-sdk key-from-raw-material function is published | verified | research: crypto-derivation-review |
-| Only the recipient can sweep; the sender cannot | verified by construction | research: crypto-derivation-review |
-| Confidential balances have near-zero usage and no wallet support | verified | research: feasibility, skeptic |
-| Payroll privacy is the strongest stated demand | medium | research: demand |
-| Self-hosted transfers are outside EU TFR scope by text | high | research: compliance |
-| ~10 transactions and ~0.013 SOL per payment | likely | research: token2022-mechanics-verified |
+| No shipped Solana system hides recipient and amount on unwrapped tokens without a pool, relayer, MPC, or enclave | likely | competitors-privacy-verified |
+| A program-owned account can be configured for confidential transfers via invoke_signed | verified | token2022-mechanics-verified |
+| The zk-sdk key-from-raw-material function is published | verified | crypto-derivation-review |
+| Only the recipient can sweep; the payer cannot | verified by construction | crypto-derivation-review |
+| Confidential balances have near-zero usage and no wallet support | verified | feasibility, skeptic |
+| Payroll privacy is the strongest stated demand | medium | demand |
+| Self-hosted transfers are outside EU TFR scope by text | high | compliance |
+| ~10 transactions and ~0.013 SOL per stealth payment | likely | token2022-mechanics-verified |

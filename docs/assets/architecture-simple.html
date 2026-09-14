@@ -10,12 +10,12 @@ import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.mi
 mermaid.initialize({startOnLoad:true,theme:'dark',themeVariables:{fontSize:'17px',primaryColor:'#1f1f28',primaryBorderColor:'#7e9cd8',primaryTextColor:'#dcd7ba',lineColor:'#9c9a8f',clusterBkg:'#1a1a22',clusterBorder:'#2a2a37'}});
 </script></head><body>
 <div class="tag">HIGH LEVEL · STABLE PARTS ONLY</div>
-<h1>Private payments on Solana</h1>
-<p>Hide who gets paid and how much. Keep an auditor key so it stays usable by real businesses.</p>
+<h1>Confidential payouts on Solana</h1>
+<p>A visible payer pays many people. The public sees neither who got paid nor how much. An auditor key keeps it usable by real businesses.</p>
 
 <pre class="mermaid">
 flowchart LR
-  S([Sender])
+  S([Payer])
   R([Recipient])
   subgraph P[Our protocol · on-chain]
     A[Address book<br/>one reusable address per person]
@@ -26,17 +26,18 @@ flowchart LR
   end
   R -- 1. publish address --> A
   S -- 2. look up --> A
-  S -- 3. create + fund a one-time account --> B
-  B -- amounts encrypted --> C
-  R -- 4. find it, prove it's yours, sweep --> B
+  S -- "3a. stealth: create + fund a one-time account" --> B
+  S -- "3b. plain: transfer to a fixed confidential account" --> C
+  B -- "amounts encrypted" --> C
+  R -- "4. find it, prove it's yours, sweep" --> B
 </pre>
 
 <ol>
-<li><b>Publish.</b> The recipient shares one address, once. It never receives funds directly.</li>
-<li><b>Pay.</b> The sender uses that address to derive a fresh account nobody can link back to the recipient, and pays into it with the amount encrypted. The recipient can be offline.</li>
-<li><b>Find and sweep.</b> The recipient scans, spots their accounts, proves ownership, and moves the money out.</li>
-<li><b>Audit.</b> A designated auditor key can read amounts. Nobody else can. Nobody can spend with it.</li>
+<li><b>Publish.</b> A recipient who wants to be unlinkable shares one address, once. It never receives funds directly. A recipient who is fine with a fixed address just has a confidential account.</li>
+<li><b>Pay.</b> The payer runs one payout to everyone. For stealth recipients it derives a fresh account nobody can link back to them and pays into it; for plain recipients it transfers directly. Amounts are encrypted either way. Recipients can be offline.</li>
+<li><b>Find and sweep.</b> A stealth recipient scans, spots their accounts, signs with the one-time key, and moves the money into a fresh account of their own. The fee comes from a little SOL the payer left behind, so their main wallet never appears.</li>
+<li><b>Audit.</b> The mint's auditor key can read every amount, and either party can hand over the key for a single payment. Nobody can spend with either.</li>
 </ol>
 
-<p><b>What we build:</b> the two on-chain pieces (address book, one-time accounts) and a command-line client. <b>What we reuse:</b> Solana's own confidential balances and proof system. <b>Not building:</b> a wallet, a web app, or our own cryptography primitives.</p>
+<p><b>What we build:</b> the two on-chain pieces (address book, one-time accounts) and a batch payout client. <b>What we reuse:</b> Solana's own confidential balances and proof system. <b>Not building:</b> a wallet, a web app, a pool, or our own cryptography primitives.</p>
 </body></html>
